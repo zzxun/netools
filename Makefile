@@ -1,5 +1,5 @@
 # Makefile for coredns customized plugins
-all: linter goimports test
+all: linter test
 
 .PHONY: test
 test:
@@ -8,10 +8,6 @@ test:
 .PHONY: linter
 linter:
 	GO111MODULE=on gometalinter --deadline=2m --disable-all --enable=golint --enable=vet --vendor --exclude=^pb/ ./...
-
-.PHONY: goimports
-goimports:
-	( GO111MODULE=on gometalinter --deadline=2m --disable-all --enable=goimports --vendor --exclude=^pb/ ./... || true )
 
 .PHONY: clean
 clean:

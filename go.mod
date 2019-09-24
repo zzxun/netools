@@ -10,7 +10,7 @@ require (
 	github.com/heralight/logrus_mate v1.0.1
 	github.com/hoisie/redis v0.0.0-20160730154456-b5c6e81454e0 // indirect
 	github.com/jinzhu/gorm v1.9.10
-	github.com/miekg/dns v1.1.17
+	github.com/miekg/dns v1.1.6
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
