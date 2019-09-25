@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"github.com/coreos/etcd/pkg/logutil"
+	"go.uber.org/zap"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -39,11 +41,6 @@ type PoolConfig struct {
 // ClientPool of etcd clientv3, allways choose leader
 type ClientPool struct {
 	*PoolConfig
-	Ctx context.Context
-
-	TestKey string
-	// for health tick
-	HealthTick time.Duration
 
 	// pool
 	clientPool map[string]*c3.Client
@@ -56,19 +53,14 @@ type ClientPool struct {
 
 	notifies map[string][]chan error
 
-	// etcd Endpoints
-	Endpoints []string // store Endpoints
-	TLS       *tls.Config
-	// Username/Password
-	Username string
-	Password string
-
 	mu sync.RWMutex
 }
 
 // NewClientv3 return a new v3 client, DON't forget to close it
 func (p *ClientPool) NewClientv3(endpoints []string) (*c3.Client, error) {
-	c, err := c3.New(c3.Config{
+	log := logutil.DefaultZapLoggerConfig
+	log.Level = zap.NewAtomicLevelAt(zap.ErrorLevel)
+	config := c3.Config{
 		Endpoints:         endpoints,
 		DialTimeout:       p.DialTimeout,
 		DialKeepAliveTime: p.DialKeepAliveTime,
@@ -76,7 +68,9 @@ func (p *ClientPool) NewClientv3(endpoints []string) (*c3.Client, error) {
 		Context:           p.Ctx,
 		Username:          p.Username,
 		Password:          p.Password,
-	})
+		LogConfig:         &log,
+	}
+	c, err := c3.New(config)
 	if err != nil {
 		return nil, err
 	}
@@ -91,11 +85,14 @@ func NewClientPool(config *PoolConfig) (*ClientPool, error) {
 	if p.TestKey == "" {
 		p.TestKey = defaultTestKey
 	}
-	if p.DialTimeout == 0 {
+	if p.DialTimeout <= 0 {
 		p.DialTimeout = etcdTimeout
 	}
-	if p.DialKeepAliveTime == 0 {
+	if p.DialKeepAliveTime <= 0 {
 		p.DialKeepAliveTime = keepAliveTime
+	}
+	if p.Endpoints == nil {
+		p.Endpoints = []string{defaultEndpoint}
 	}
 
 	return p, p.Init()
@@ -112,12 +109,12 @@ func (p *ClientPool) Init() error {
 	if err != nil {
 		return err
 	}
-	p.StartHealthCheck()
+	p.startHealthCheck()
 	return p.checkMembers(c, true)
 }
 
-// StartHealthCheck start a health check
-func (p *ClientPool) StartHealthCheck() {
+// startHealthCheck start a health check
+func (p *ClientPool) startHealthCheck() {
 	if p.HealthTick == 0 {
 		p.HealthTick = etcdTimeout
 	}
