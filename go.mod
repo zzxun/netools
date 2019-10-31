@@ -20,4 +20,5 @@ require (
 	github.com/sirupsen/logrus v1.4.3-0.20190807103436-de736cf91b92
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/viper v1.4.0
+	go.uber.org/zap v1.10.0
 )
