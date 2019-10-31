@@ -18,6 +18,7 @@ type Task struct {
 	d       time.Duration // for test
 	expired int64
 	task    func()
+	done    int32
 
 	// for stop this item
 	s unsafe.Pointer
@@ -35,21 +36,48 @@ func (t *Task) setSlot(b *slot) {
 // Stop task and remove, return true if removed.
 func (t *Task) Stop() (stopped bool) {
 	for s := t.getSlot(); t != nil; s = t.getSlot() {
+		if s == nil || atomic.LoadInt32(&t.done) == 1 {
+			return true
+		}
 		stopped = s.Remove(t)
 	}
 	return
 }
 
+func (t *Task) Reset(d time.Duration) (done bool) {
+	for s := t.getSlot(); t != nil; s = t.getSlot() {
+		if s == nil || atomic.LoadInt32(&t.done) == 1 {
+			return false
+		}
+		if s.Reset(t, d) {
+			done = true
+			break
+		}
+	}
+	return
+}
+
+func (t *Task) clear() {
+	t.setSlot(nil)
+	t.e = nil
+}
+
+func (t *Task) setDone(i int32) {
+	atomic.StoreInt32(&t.done, 1)
+}
+
 // slot store the key/func
 type slot struct {
+	w       *SimpleWheel
 	expired int64
 	items   *list.List
 
 	sync.Mutex
 }
 
-func newSlot() *slot {
+func newSlot(w *SimpleWheel) *slot {
 	return &slot{
+		w:       w,
 		expired: -1,
 		items:   list.New(),
 	}
@@ -81,8 +109,7 @@ func (s *slot) remove(t *Task) bool {
 	}
 	// clear
 	s.items.Remove(t.e)
-	t.setSlot(nil)
-	t.e = nil
+	t.clear()
 	return true
 }
 
@@ -117,6 +144,22 @@ func (s *slot) Size() int {
 	return s.items.Len()
 }
 
+func (s *slot) Reset(t *Task, duration time.Duration) bool {
+	s.Lock()
+	defer s.Unlock()
+	if t.getSlot() != s {
+		return false
+	}
+	t.d = duration / time.Millisecond
+	t.expired = timeToMs(time.Now().Add(duration))
+	// clear
+	s.items.Remove(t.e)
+	t.clear()
+	s.w.entry.addOrRun(t)
+
+	return true
+}
+
 // SimpleWheel a simple multi-level timing wheel
 type SimpleWheel struct {
 	tick int64 // millisecond
@@ -131,6 +174,8 @@ type SimpleWheel struct {
 
 	level int
 
+	// entry wheel
+	entry *SimpleWheel
 	// next wheel
 	overlap unsafe.Pointer
 
@@ -155,25 +200,32 @@ func NewSimpleTimeWheel(tick time.Duration, size int64, pool int) *SimpleWheel {
 	}
 
 	startMs := timeToMs(time.Now())
-	return newSimpleWheel(tickMs, size, startMs, 0, pool)
+	return newSimpleWheel(nil, tickMs, size, startMs, 0, pool)
 }
 
-func newSimpleWheel(tickMs int64, size int64, startMs int64, lvl int, pool int) *SimpleWheel {
-	slots := make([]*slot, size)
-	for i := range slots {
-		slots[i] = newSlot()
-	}
-	return &SimpleWheel{
+func newSimpleWheel(entry *SimpleWheel, tickMs int64, size int64, startMs int64, lvl int, pool int) *SimpleWheel {
+	w := &SimpleWheel{
 		tick:        tickMs,
 		size:        size,
 		currentTime: format(startMs, tickMs), // integer multiples
 		interval:    tickMs * size,
-		slots:       slots,
 		donec:       make(chan struct{}, 1),
 		level:       lvl,
 		poolSize:    pool,
 		poolc:       make(chan *Task, pool*10),
 	}
+
+	w.entry = entry
+	if entry == nil {
+		w.entry = w
+	}
+	slots := make([]*slot, size)
+	for i := range slots {
+		slots[i] = newSlot(w.entry)
+	}
+	w.slots = slots
+
+	return w
 }
 
 // Start timing wheel tick
@@ -220,6 +272,7 @@ func (w *SimpleWheel) add(t *Task) bool {
 		overlap := atomic.LoadPointer(&w.overlap)
 		if overlap == nil {
 			atomic.CompareAndSwapPointer(&w.overlap, nil, unsafe.Pointer(newSimpleWheel(
+				w.entry,
 				w.interval,
 				w.size,
 				cut,
@@ -269,7 +322,7 @@ func (w *SimpleWheel) onTick(entry *SimpleWheel, now time.Time) int64 {
 	atomic.SwapInt64(&w.currentTime, timeToMs(now))
 	// to next tick
 	if s.Size() > 0 {
-		w.slots[w.cur] = newSlot()
+		w.slots[w.cur] = newSlot(w.entry)
 		// run task
 		go s.Flush(entry.addOrRun)
 	}
@@ -286,7 +339,9 @@ func (w *SimpleWheel) run() {
 	for {
 		select {
 		case t := <-w.poolc:
+			t.setDone(1)
 			t.task() // run it
+			t.clear()
 			atomic.AddInt64(&w.done, 1)
 		case <-w.donec:
 			return

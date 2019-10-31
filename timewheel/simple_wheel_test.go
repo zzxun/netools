@@ -171,7 +171,7 @@ func Test_After(t *testing.T) {
 			})
 		}
 		select {
-		case <-time.After(501 * time.Millisecond):
+		case <-time.After(time.Second):
 			t.Log(atomic.LoadInt64(&proc), ca)
 		}
 
@@ -180,4 +180,33 @@ func Test_After(t *testing.T) {
 		}
 	}
 
+}
+
+func Test_Reset(t *testing.T) {
+	wheel := NewSimpleTimeWheel(time.Millisecond*100, 60, 4)
+	wheel.Start()
+
+	defer wheel.Stop()
+	now := time.Now()
+	c := make(chan time.Time, 1)
+	tt := wheel.After(2*time.Second, func() {
+		rt := <-c
+		if rt.Unix()-now.Unix() != 1 {
+			t.Errorf("should after 1 seconds reset, reset time: %d, start time %d", rt.Unix(), now.Unix())
+		}
+		n := time.Now()
+		if n.Unix()-now.Unix() != 3 {
+			t.Errorf("should after 3 seconds execute, execute time: %d, start time %d", n.Unix(), now.Unix())
+		}
+	})
+
+	wheel.After(time.Second, func() {
+		rt := time.Now()
+		tt.Reset(2 * time.Second)
+		c <- rt
+	})
+
+	select {
+	case <-time.After(3*time.Second + 100*time.Millisecond):
+	}
 }
