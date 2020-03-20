@@ -182,6 +182,14 @@ func Test_After(t *testing.T) {
 
 }
 
+type testRemainer struct {
+	expired int64
+}
+
+func (r *testRemainer) Expired() int64 {
+	return r.expired
+}
+
 func Test_Reset(t *testing.T) {
 	wheel := NewSimpleTimeWheel(time.Millisecond*100, 60, 4)
 	wheel.Start()
@@ -189,24 +197,22 @@ func Test_Reset(t *testing.T) {
 	defer wheel.Stop()
 	now := time.Now()
 	c := make(chan time.Time, 1)
-	tt := wheel.After(2*time.Second, func() {
-		rt := <-c
-		if rt.Unix()-now.Unix() != 1 {
-			t.Errorf("should after 1 seconds reset, reset time: %d, start time %d", rt.Unix(), now.Unix())
-		}
-		n := time.Now()
-		if n.Unix()-now.Unix() != 3 {
-			t.Errorf("should after 3 seconds execute, execute time: %d, start time %d", n.Unix(), now.Unix())
-		}
-	})
 
-	wheel.After(time.Second, func() {
-		rt := time.Now()
-		tt.Reset(2 * time.Second)
-		c <- rt
-	})
-
-	select {
-	case <-time.After(3*time.Second + 100*time.Millisecond):
+	r := &testRemainer{
+		expired: time.Now().Add(2 * time.Second).UnixNano(),
 	}
+	wheel.AfterRemain(r, func() { // before after 2s, after reset
+		c <- time.Now()
+	})
+
+	wheel.After(time.Second, func() { // after 1s
+		// reset to after 3s
+		r.expired = time.Now().Add(2 * time.Second).UnixNano()
+	})
+
+	rt := <-c
+	if rt.Unix()-now.Unix() != 3 {
+		t.Errorf("should after 3 seconds execute, execute time: %d, start time %d", rt.Unix(), now.Unix())
+	}
+
 }

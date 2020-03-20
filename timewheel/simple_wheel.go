@@ -13,12 +13,26 @@ const (
 	defaultPool = 4
 )
 
+// Remain for timing wheel task
+type Remain interface {
+	// Expired return expired time in int64 UnixNano
+	Expired() int64
+}
+
+// default remain
+type remainer struct {
+	expired int64
+}
+
+func (r remainer) Expired() int64 {
+	return r.expired
+}
+
 // Task wrapper a delayed execute function.
 type Task struct {
-	d       time.Duration // for test
-	expired int64
-	task    func()
-	done    int32
+	Remain
+	task func()
+	done int32
 
 	// for stop this item
 	s unsafe.Pointer
@@ -40,19 +54,6 @@ func (t *Task) Stop() (stopped bool) {
 			return true
 		}
 		stopped = s.Remove(t)
-	}
-	return
-}
-
-func (t *Task) Reset(d time.Duration) (done bool) {
-	for s := t.getSlot(); t != nil; s = t.getSlot() {
-		if s == nil || atomic.LoadInt32(&t.done) == 1 {
-			return false
-		}
-		if s.Reset(t, d) {
-			done = true
-			break
-		}
 	}
 	return
 }
@@ -142,22 +143,6 @@ func (s *slot) Size() int {
 	s.Lock()
 	defer s.Unlock()
 	return s.items.Len()
-}
-
-func (s *slot) Reset(t *Task, duration time.Duration) bool {
-	s.Lock()
-	defer s.Unlock()
-	if t.getSlot() != s {
-		return false
-	}
-	t.d = duration / time.Millisecond
-	t.expired = timeToMs(time.Now().Add(duration))
-	// clear
-	s.items.Remove(t.e)
-	t.clear()
-	s.w.entry.addOrRun(t)
-
-	return true
 }
 
 // SimpleWheel a simple multi-level timing wheel
@@ -259,11 +244,12 @@ func (w *SimpleWheel) Stop() {
 func (w *SimpleWheel) add(t *Task) bool {
 	cut := atomic.LoadInt64(&w.currentTime)
 	cur := atomic.LoadInt64(&w.cur)
-	if t.expired < cut+w.tick { // in this tick
+	expired := int64(time.Duration(t.Expired()) / time.Millisecond)
+	if expired < cut+w.tick { // in this tick
 		return false
-	} else if t.expired < cut+w.interval { // in this level
+	} else if expired < cut+w.interval { // in this level
 		// calculate index
-		lot := (t.expired - cut) / w.tick
+		lot := (expired - cut) / w.tick
 		idx := (lot + cur) % w.size
 		s := w.slots[idx]
 		s.Add(t)
@@ -294,10 +280,16 @@ func (w *SimpleWheel) addOrRun(t *Task) {
 
 // After add a task to timing wheel with delay time.
 func (w *SimpleWheel) After(d time.Duration, task func()) *Task {
+	return w.AfterRemain(remainer{
+		expired: time.Now().Add(d).UnixNano(),
+	}, task)
+}
+
+// AfterRemain add a task to timing wheel with Remain object.
+func (w *SimpleWheel) AfterRemain(r Remain, task func()) *Task {
 	t := &Task{
-		d:       d / time.Millisecond,
-		expired: timeToMs(time.Now().Add(d)),
-		task:    task,
+		Remain: r,
+		task:   task,
 	}
 	w.addOrRun(t)
 	return t
