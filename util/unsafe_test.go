@@ -2,7 +2,6 @@ package util
 
 import (
 	"testing"
-	"unsafe"
 )
 
 func Test_ByteString(t *testing.T) {
@@ -26,8 +25,6 @@ func Test_ByteString(t *testing.T) {
 	}
 }
 
-
-
 func Benchmark_Normal(b *testing.B) {
 	var x = []byte("Hello World!")
 	for i := 0; i < b.N; i++ {
@@ -38,6 +35,6 @@ func Benchmark_Normal(b *testing.B) {
 func Benchmark_ByteString(b *testing.B) {
 	var x = []byte("Hello World!")
 	for i := 0; i < b.N; i++ {
-		_ = *(*string)(unsafe.Pointer(&x))
+		_ = Bytes2String(x)
 	}
 }
