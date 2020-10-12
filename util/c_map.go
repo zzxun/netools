@@ -201,15 +201,17 @@ func (s *Shard) Evict() {
 func (s *Shard) Get(key string, lru bool) (interface{}, bool) {
 	s.RLock()
 	el, found := s.items[key]
-	s.RUnlock()
 	if found {
+		val := el.Value.(*node).value
+		s.RUnlock()
 		if lru {
 			s.Lock()
 			s.dlist.MoveToFront(el)
 			s.Unlock()
 		}
-		return el.Value.(*node).value, found
+		return val, found
 	}
+	s.RUnlock()
 	return nil, found
 }
 
