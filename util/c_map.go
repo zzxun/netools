@@ -82,7 +82,7 @@ func NewSmallMap(size int) *CMap {
 
 	// Initialize all the shards
 	for i := 0; i < shardSize; i++ {
-		c.shards[i] = NewShard(ssize, false)
+		c.shards[i] = NewShard(ssize, true)
 	}
 	c.ssize = shardSize
 	return c

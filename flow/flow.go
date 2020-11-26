@@ -56,6 +56,30 @@ func NewFlowControl(size int, interval time.Duration) Control {
 	return f
 }
 
+// NewFlowControl return a new Control.
+func NewFlowControl2(size int,
+	interval time.Duration,
+	cmap *util.CMap,
+	cleaner *timewheel.SimpleWheel,
+) Control {
+	f := &flowControl{
+		interval:  int64(interval),
+		remainTLL: 15 * time.Minute,
+		single:    make(map[string]*wait),
+		cleaner:   cleaner,
+		cmap:      cmap,
+	}
+	if f.cmap == nil {
+		f.cmap = util.NewSmallMap(size)
+	}
+	if f.cleaner == nil {
+		f.cleaner = timewheel.NewSimpleTimeWheel(time.Second/2, 60, 1)
+		f.cleaner.Start()
+		runtime.SetFinalizer(f.cleaner, (*timewheel.SimpleWheel).Stop)
+	}
+	return f
+}
+
 // GetLimit of this key
 func (f *flowControl) Do(key string, li int32) int32 {
 	now := time.Now().UnixNano()
@@ -77,9 +101,11 @@ func (f *flowControl) Do(key string, li int32) int32 {
 
 	w.limit = newItem(now, key, li)
 	f.cmap.Add(key, w.limit)
-	f.cleaner.After(f.remainTLL, func() {
-		f.cmap.Remove(key)
-	})
+	f.cleaner.After(
+		f.remainTLL, func() {
+			f.cmap.Remove(key)
+		},
+	)
 	w.wg.Done()
 
 	f.mu.Lock()
