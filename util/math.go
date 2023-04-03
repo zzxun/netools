@@ -7,8 +7,6 @@ import (
 	"net"
 	"strings"
 	"time"
-
-	"github.com/miekg/dns"
 )
 
 // CIDRRange a cidr to long start ip and end.
@@ -46,38 +44,6 @@ func Hash(qname string) uint32 {
 	}
 
 	return h.Sum32()
-}
-
-// ReverseQname a qname
-func ReverseQname(s string) string {
-	qname := dns.SplitDomainName(s)
-	// reverse
-	for i, j := 0, len(qname)-1; i < j; i, j = i+1, j-1 {
-		qname[i], qname[j] = qname[j], qname[i]
-	}
-
-	return "." + strings.Join(qname, ".")
-}
-
-// ReverseQnames reverse names and make to fqdn
-func ReverseQnames(qname []string) string {
-	qn := make([]string, len(qname))
-	for i := 0; i < len(qname); i++ {
-		qn[i] = qname[len(qname)-1-i]
-	}
-
-	return strings.Join(qn, ".") + "."
-}
-
-// RReverseQname a ReverseQname
-func RReverseQname(s string) string {
-	qname := dns.SplitDomainName(s)
-	// reverse
-	for i, j := 0, len(qname)-1; i < j; i, j = i+1, j-1 {
-		qname[i], qname[j] = qname[j], qname[i]
-	}
-
-	return strings.Join(qname, ".")
 }
 
 // From https://stackoverflow.com/questions/22892120/how-to-generate-a-random-string-of-a-fixed-length-in-golang

@@ -2,11 +2,12 @@ package timewheel
 
 import (
 	"fmt"
-	"github.com/zzxun/netools/util"
 	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/zzxun/netools/util"
 )
 
 func TestTimingWheel_AfterFunc(t *testing.T) {
